@@ -76,11 +76,8 @@ watch(
 )
 
 onMounted(() => {
-  // 获取新闻分类
-  newsStore.getCategories().then(() => {
-    // 获取新闻列表
-    newsStore.getNewsList()
-  })
+  // 获取分类，van-list 渲染后会自动触发 onLoad 获取新闻列表
+  newsStore.getCategories()
   
   // 初始化位置
   setTimeout(updateTabsPosition, 300)
@@ -88,8 +85,6 @@ onMounted(() => {
   // 添加滚动事件监听
   window.addEventListener('scroll', handleScroll)
 })
-
-// 计算属性：显示的分类（只显示非"更多"分类）
 const displayCategories = computed(() => {
   // 获取所有非"更多"分类
   return newsStore.categories.filter(category => category.name !== '更多');
@@ -163,17 +158,6 @@ const handleScroll = () => {
   updateTabsPosition()
 }
 
-onMounted(() => {
-  newsStore.getNewsList()
-  
-  // 初始化位置
-  setTimeout(updateTabsPosition, 300)
-  
-  // 添加滚动事件监听
-  window.addEventListener('scroll', handleScroll)
-})
-
-// 组件销毁前移除事件监听
 onBeforeUnmount(() => {
   window.removeEventListener('scroll', handleScroll)
 })
