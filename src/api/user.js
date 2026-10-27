@@ -8,6 +8,10 @@ export function register(data) {
   return request.post('/api/user/register', data)
 }
 
+export function logout() {
+  return request.post('/api/user/logout')
+}
+
 export function getUserInfo() {
   return request.get('/api/user/info')
 }
@@ -17,5 +21,5 @@ export function updateUserInfo(data) {
 }
 
 export function updatePassword(data) {
-  return request.put('/api/user/password', data)
+  return request.post('/api/user/change-password', data)
 }

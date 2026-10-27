@@ -39,8 +39,6 @@ import { ref, computed, h, onMounted } from 'vue';
 import { useUserStore } from '../store/user';
 import { showDialog, showToast, showLoadingToast, showSuccessToast, showFailToast } from 'vant';
 import { useRouter } from 'vue-router';
-import axios from 'axios';
-import { apiConfig } from '../config/api';
 
 const router = useRouter();
 const userStore = useUserStore();
@@ -161,7 +159,12 @@ const showPasswordConfirm = () => {
       loadingInstance.close();
       
       if (result && result.success) {
-        showSuccessToast('密码修改成功');
+        showSuccessToast('密码修改成功, 请重新登录');
+        // 密码已变更，当前token作废，清空本地登录态并跳转登录页
+        userStore.clearAuth();
+        setTimeout(() => {
+          router.replace('/login');
+        }, 3000);
       } else {
         showFailToast((result && result.message) || '密码修改失败');
       }

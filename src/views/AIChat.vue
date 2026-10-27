@@ -28,6 +28,7 @@
           type="textarea"
           placeholder="请输入问题..."
           class="chat-input"
+          :maxlength="maxPromptLength"
           @keypress.enter.prevent="sendMessage"
         />
         <van-button 
@@ -46,12 +47,16 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, watch } from 'vue';
+import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import TabBar from '../components/TabBar.vue';
 import { showToast } from 'vant';
 import * as marked from 'marked';
 import DOMPurify from 'dompurify';
-import { aiChatConfig } from '../config/api';
+import { streamChatMessage } from '../api/ai';
+import { checkPrompt, MAX_PROMPT_LENGTH } from '../utils/promptGuard';
+
+// 输入长度上限（与后端 4000 字上限配合，前端先收紧）
+const maxPromptLength = MAX_PROMPT_LENGTH;
 
 // 聊天消息
 const messages = ref([
@@ -61,10 +66,8 @@ const userInput = ref('');
 const messagesContainer = ref(null);
 const isLoading = ref(false);
 
-// 从配置文件获取API设置
-const apiEndpoint = ref(aiChatConfig.apiEndpoint);
-const apiKey = ref(aiChatConfig.apiKey);
-const model = ref(aiChatConfig.model);
+// 用于中断进行中的流式请求（离开页面时释放）
+let controller = null;
 
 // 格式化消息内容（支持Markdown）
 const formatMessage = (content) => {
@@ -76,112 +79,63 @@ const formatMessage = (content) => {
 // 发送消息
 const sendMessage = async () => {
   if (!userInput.value.trim() || isLoading.value) return;
-  
-  // 检查API设置
-  if (!apiKey.value || apiKey.value === 'your-api-key-here') {
-    showToast('API Key未配置，请联系管理员');
-    return;
+
+  // 前端先拦一道提示词注入（换身份、忽略规则、套系统提示词/密钥等）
+  const blockedReason = checkPrompt(userInput.value);
+  if (blockedReason) {
+    showToast(`不支持这类指令（${blockedReason}），换个问法试试`);
+    return; // 保留输入内容，方便用户修改
   }
-  
+
   // 添加用户消息
   const userMessage = userInput.value.trim();
   messages.value.push({ role: 'user', content: userMessage });
   userInput.value = '';
-  
+
   // 添加AI消息占位
   messages.value.push({ role: 'assistant', content: '' });
-  
+
   // 滚动到底部
   await nextTick();
   scrollToBottom();
-  
-  // 发送请求
+
   isLoading.value = true;
+  controller = new AbortController();
+
   try {
-    await fetchAIResponse(userMessage);
+    // 排除最后一条空的 assistant 占位，最后一条为当前提问（后端要求）
+    const history = messages.value
+      .slice(0, -1)
+      .map(msg => ({ role: msg.role, content: msg.content }));
+
+    const answer = await streamChatMessage(
+      history,
+      (chunk) => {
+        // 追加增量内容并保持滚动到底部
+        messages.value[messages.value.length - 1].content += chunk;
+        nextTick(scrollToBottom);
+      },
+      controller.signal,
+    );
+
+    // 没有收到任何内容
+    if (!answer) {
+      messages.value[messages.value.length - 1].content = '抱歉，我无法生成回复，请稍后再试。';
+    }
   } catch (error) {
+    if (error.name === 'AbortError') {
+      // 用户离开页面或主动中断，保留已生成内容
+      return;
+    }
     console.error('Error fetching AI response:', error);
-    // 更新最后一条消息为错误信息
-    messages.value[messages.value.length - 1].content = `发生错误: ${error.message || '请检查网络连接和API设置'}`;
+    const message = error.message || '请检查网络连接后重试';
+    messages.value[messages.value.length - 1].content = `发生错误：${message}`;
+    showToast(message);
   } finally {
     isLoading.value = false;
+    controller = null;
     await nextTick();
     scrollToBottom();
-  }
-};
-
-// 获取AI响应（使用SSE）
-const fetchAIResponse = async (userMessage) => {
-  const allMessages = messages.value
-    .slice(0, -1) // 排除最后一个空的assistant消息
-    .map(msg => ({ role: msg.role, content: msg.content }));
-  
-  try {
-    const response = await fetch(apiEndpoint.value, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey.value}`,
-        'X-DashScope-SSE': 'enable' // 添加阿里云DashScope所需的SSE头
-      },
-      body: JSON.stringify({
-        model: model.value,
-        messages: allMessages,
-        stream: true
-      })
-    });
-    
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.error?.message || `HTTP error! status: ${response.status}`);
-    }
-    
-    // 处理SSE流
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let aiResponse = '';
-  
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-    
-    for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        const data = line.slice(6);
-        if (data === '[DONE]') continue;
-        
-        try {
-          const json = JSON.parse(data);
-          // 适配阿里云DashScope的返回格式
-          const content = json.choices?.[0]?.delta?.content || 
-                         json.output?.text || 
-                         json.choices?.[0]?.message?.content || '';
-          if (content) {
-            aiResponse += content;
-            // 更新最后一条消息
-            messages.value[messages.value.length - 1].content = aiResponse;
-            await nextTick();
-            scrollToBottom();
-          }
-        } catch (e) {
-          console.error('Error parsing SSE data:', e);
-        }
-      }
-    }
-  }
-  
-  // 如果没有收到任何内容
-  if (!aiResponse) {
-    messages.value[messages.value.length - 1].content = '抱歉，我无法生成回复。请检查API设置或稍后再试。';
-  }
-  } catch (error) {
-    console.error('Fetch error:', error);
-    throw error;
   }
 };
 
@@ -200,6 +154,11 @@ watch(messages, () => {
 // 组件挂载时滚动到底部
 onMounted(() => {
   scrollToBottom();
+});
+
+// 离开页面时中断流式请求，避免残留连接
+onUnmounted(() => {
+  controller?.abort();
 });
 </script>
 

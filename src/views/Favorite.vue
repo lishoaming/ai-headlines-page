@@ -47,7 +47,7 @@
 import { onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useFavoriteStore } from '../store/modules/favorite';
-import { showDialog } from 'vant';
+import { showDialog, showToast } from 'vant';
 
 const router = useRouter();
 const favoriteStore = useFavoriteStore();
@@ -63,23 +63,28 @@ const goToNewsDetail = (id) => {
 };
 
 // 删除单条收藏
-const removeFavorite = async (id) => {
-  const result = await favoriteStore.removeFavoriteApi(id);
+const removeFavorite = async (newsId) => {
+  const result = await favoriteStore.removeFavoriteApi(newsId);
   if (result.success) {
     // API请求成功后，更新本地收藏列表
-    favoriteStore.removeFavorite(id);
+    favoriteStore.removeFavorite(newsId);
+    return;
+  }
+  // 业务错误（如收藏已不存在）展示后端真实原因；网络/服务端异常拦截器已提示
+  if (!result.notified) {
+    showToast(result.message || '取消收藏失败');
   }
 };
 
 // 确认删除
-const confirmDelete = (id) => {
+const confirmDelete = (newsId) => {
   showDialog({
     title: '提示',
     message: '确定要删除这条收藏吗？',
     showCancelButton: true,
   }).then((action) => {
     if (action === 'confirm') {
-      removeFavorite(id);
+      removeFavorite(newsId);
     }
   });
 };

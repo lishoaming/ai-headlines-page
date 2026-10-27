@@ -66,10 +66,9 @@ const goToNewsDetail = (id) => {
 const removeHistory = async (id) => {
   try {
     const result = await historyStore.removeHistoryApi(id);
-    console.log('删除单条历史记录结果:', result);
-    
-    // 如果API请求失败且不是本地操作，则显示错误提示
-    if (!result.success && !result.isLocal) {
+    // 拦截器已提示过的错误（网络/服务端异常）不再重复弹窗；
+    // 业务错误（如记录已被删除）由这里展示后端返回的真实原因
+    if (!result.success && !result.notified) {
       showDialog({
         title: '提示',
         message: result.message || '删除失败，请稍后重试',
@@ -77,8 +76,6 @@ const removeHistory = async (id) => {
     }
   } catch (error) {
     console.error('删除历史记录失败:', error);
-    // 出错时仍然尝试本地删除
-    // historyStore.removeHistory(id);
   }
 };
 
@@ -105,10 +102,8 @@ const onClickClear = async () => {
     if (action === 'confirm') {
       try {
         const result = await historyStore.clearHistoryApi();
-        console.log('清空历史记录结果:', result);
-        
-        // 如果API请求失败且不是本地操作，则显示错误提示
-        if (!result.success && !result.isLocal) {
+
+        if (!result.success && !result.notified) {
           showDialog({
             title: '提示',
             message: result.message || '清空失败，请稍后重试',
@@ -116,8 +111,6 @@ const onClickClear = async () => {
         }
       } catch (error) {
         console.error('清空历史记录失败:', error);
-        // 出错时仍然尝试本地清空
-        // historyStore.clearHistory();
       }
     }
   });

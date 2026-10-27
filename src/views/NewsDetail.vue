@@ -124,9 +124,9 @@ const toggleFavorite = async () => {
       position: 'bottom',
     })
   } else {
-    // status为null表示操作失败
+    // status为null表示操作失败，优先展示后端返回的原因（如未登录、文章不存在）
     showToast({
-      message: '操作失败，请稍后重试',
+      message: favoriteStore.lastError || '操作失败，请稍后重试',
       position: 'bottom',
     })
   }

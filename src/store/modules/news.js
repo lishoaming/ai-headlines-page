@@ -102,6 +102,7 @@ export const useNewsStore = defineStore('news', {
         const res = await fetchNewsDetail(id)
 
         if (res && res.code === 200) {
+          console.log(res.data)
           this.newsDetail = res.data
         }
       } catch {
